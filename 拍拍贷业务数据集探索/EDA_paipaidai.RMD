@@ -1,0 +1,590 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+拍拍贷业务数据探索
+========================================================
+
+中华民族是一个比较保守的民族。我们的父辈们对向银行借钱心存芥蒂，其中怕没有持续的偿还能力是最担心的因素。现在住房贷款已成刚需刚需。而对消费贷这样的新兴贷款，近年来发展迅猛。
+
+拍拍贷是该行业的领军品牌之一，该公司提供了一个数据集，包含从2015-01-01到2017-01-30的所有信用标的10%sample样本。
+我将使用两个数据集进行探索，分别是：
+
+1. 标的特征；
+2. 标的还款计划；
+3. 标的还款状态。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#install.packages('ggplot2')
+#install.packages('dplyr')
+#install.packages('rlang')
+#install.packages('GGally')
+#install.packages('stringr')
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(GGally)
+library(gridExtra)
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#setwd('/Users/rabbit/我的坚果云/udacity/数据分析进阶/R学习/探索性数据分析_课件/项目/')
+
+setwd('/Users/rabbit/.nutstore/.nutstore/我的坚果云/udacity/数据分析进阶/R学习/探索性数据分析_课件/项目/')
+lc <- read.csv('LC.csv')
+lp <- read.csv('LP.csv')
+ls <- read.csv('LCIS.csv')
+```
+
+# 单变量绘图选择
+
+```{r echo=FALSE}
+str(lc)
+```
+```{r echo=FALSE}
+summary(lc)
+```
+
+标的特征数据包含328553个观察，共21个变量。每个观察是一个投资标的。
+
+```{r echo=FALSE}
+str(lp)
+```
+```{r echo=FALSE}
+summary(lp)
+```
+
+还款计划数据包含3203276个观察，共10个变量。每个观察是每个投资标的每期的还款。由于大多数标的都是分期还款，因此该数据表的观察要比标的特征表多一个数量级。
+
+有近50%的还款日期是空值，造成该问题的原因主要是未到还款日期，或截止到数据备份日逾期未还款。
+
+```{r echo=FALSE}
+str(ls)
+```
+
+还款状态数据包含292539个观察，共37个变量。每个观察是每个投资标的。第一期还款日期还没到的标的不在该数据集中显示。
+
+```{r echo=FALSE, plot_by_age_1st_trait}
+univar_plot_hist <- function(dataset, xvar, xlab, binwidth) {
+  return(
+    ggplot(data = dataset, aes(x = xvar)) + 
+      geom_histogram(binwidth = binwidth) +
+      labs(x = xlab) +
+      theme(text = element_text(family = 'STXihei'))
+  )
+}
+univar_plot_hist(lc, lc$年龄, '年龄', 1)
+```
+
+借款人大多数年龄在20-40岁。50岁以上的借款人数量很少了。我认为这和偿还能力有关，通常年轻人未来有比较长的职业生涯，偿还能力也越佳。
+
+```{r echo=FALSE,plot_by_gender_2nd_trait}
+univar_plot_bar_freq <- function(dataset, xvar, xlab) {
+  return(
+    ggplot(data = dataset, 
+           aes(x = xvar,y = ..count.. / sum(..count..))) + 
+      geom_bar() +
+      labs(x = xlab) +
+      theme(text = element_text(family = 'STXihei'))
+  )
+}
+univar_plot_bar_freq(lc, lc$性别, '性别')
+```
+
+借款人多数为男性，女性大约为男性的一半。
+
+```{r echo=FALSE,plot_by_new_user_3rd_trait}
+univar_plot_bar_freq(lc, lc$是否首标, '是否首标')
+```
+
+超过70%的标的来自老用户。
+
+```{r echo=FALSE,warning=FALSE, plot_by_history_trade_4th_trait_1}
+univar_plot_hist(lc, lc$历史成功借款次数, '历史成功借款次数', 1)
+```
+```{r echo=FALSE,warning=FALSE, plot_by_history_trade_4th_trait_2}
+univar_plot_hist(lc, lc$历史成功借款次数, '历史成功借款次数', 1) +
+  scale_x_continuous(breaks = seq(0, quantile(lc$历史成功借款次数, 0.99), 1),
+                     limits = c(-1, quantile(lc$历史成功借款次数, 0.99))) 
+```
+```{r echo=FALSE,}
+summary(lc$历史成功借款次数)
+```
+
+75%的标的借款人历史借款次数在3次以下。借款次数最高达到649次，这是一个明显的异常值。
+
+```{r echo=FALSE,plot_by_history_amounts_5th_trait_1}
+univar_plot_hist(lc, lc$历史成功借款金额, '历史成功借款金额', 1000)
+```
+```{r echo=FALSE,warning=FALSE, plot_by_history_amounts_5th_trait_2}
+univar_plot_hist(lc, lc$历史成功借款金额, '历史成功借款金额', 2000) +
+  scale_x_continuous(limits = c(0, quantile(lc$历史成功借款金额, 0.99)))
+```
+```{r echo=FALSE}
+summary(lc$历史成功借款金额)
+```
+
+75%的标的借款人历史借款在10355以下。历史借款金额最高达到70多万元。同样，这是一个明显的异常值。
+
+```{r echo=FALSE}
+# 将认证结果转为0或1，便于统计认证数量，以及后续计算相关性。
+lc <- lc %>%
+  mutate(手机认证 = gsub('未成功认证', 0, 手机认证)) %>%
+  mutate(手机认证 = gsub('成功认证', 1, 手机认证)) %>%
+  mutate(手机认证 = as.numeric(手机认证)) %>%
+  mutate(户口认证 = gsub('未成功认证', 0, 户口认证)) %>%
+  mutate(户口认证 = gsub('成功认证', 1, 户口认证)) %>%
+  mutate(户口认证 = as.numeric(户口认证)) %>%
+  mutate(视频认证 = gsub('未成功认证', 0, 视频认证)) %>%
+  mutate(视频认证 = gsub('成功认证', 1, 视频认证)) %>%
+  mutate(视频认证 = as.numeric(视频认证)) %>%
+  mutate(学历认证 = gsub('未成功认证', 0, 学历认证)) %>%
+  mutate(学历认证 = gsub('成功认证', 1, 学历认证)) %>%
+  mutate(学历认证 = as.numeric(学历认证)) %>%
+  mutate(征信认证 = gsub('未成功认证', 0, 征信认证)) %>%
+  mutate(征信认证 = gsub('成功认证', 1, 征信认证)) %>%
+  mutate(征信认证 = as.numeric(征信认证)) %>%
+  mutate(淘宝认证 = gsub('未成功认证', 0, 淘宝认证)) %>%
+  mutate(淘宝认证 = gsub('成功认证', 1, 淘宝认证)) %>%
+  mutate(淘宝认证 = as.numeric(淘宝认证)) %>%
+  mutate(认证数量 = 手机认证 + 户口认证 + 视频认证 + 
+               学历认证 + 征信认证 + 淘宝认证)
+```
+```{r echo=FALSE,plot_by_auth_num_6th_trait}
+univar_plot_bar <- function(dataset, xvar, xlab) {
+  return(
+    ggplot(data = dataset, aes(x = xvar)) +
+      geom_bar() +
+      labs(x = xlab) +
+      theme(text = element_text(family = 'STXihei'))
+  )
+}
+univar_plot_bar(lc, lc$认证数量, '认证数量') +
+  scale_x_continuous(breaks = seq(0,6,1))
+```
+
+我猜测认证的数量是一个比较重要的特征。我新增了“认证数量”特征，计算了认证成功的认证方式的数量。
+
+大部分的标的，借款人的认证数量在2种以下。让人意外的是，有那么多没有任何借款人身份认证的标的。
+
+```{r echo=FALSE,plot_by_rank_7th_trait}
+univar_plot_bar(lc, lc$初始评级, '初始评级')
+```
+
+初始评级呈现正态分布。大多数标的的初始评级是中等的C和D。
+
+```{r echo=FALSE,plot_by_amounts_8th_trait_1}
+univar_plot_hist(lc,lc$借款金额,'借款金额',500)
+```
+```{r echo=FALSE,warning=FALSE, plot_by_amounts_8th_trait_2}
+univar_plot_hist(lc,lc$借款金额,'借款金额',2000) +
+  scale_x_continuous(breaks = seq(0,quantile(lc$借款金额,0.99),2000),
+                     limits = c(0,quantile(lc$借款金额,0.99)))
+```
+```{r echo=FALSE}
+summary(lc$借款金额)
+```
+
+借款金额最低100元，最高50万元。大多数标的，借款金额在6000以下。
+
+```{r echo=FALSE, plot_by_date_range_9th_trait_1}
+univar_plot_hist(lc,lc$借款期限,'借款期限',1)
+```
+```{r echo=FALSE, warning=FALSE, plot_by_date_range_9th_trait_2}
+univar_plot_hist(lc,lc$借款期限,'借款期限',1) +
+  scale_x_continuous(breaks = seq(5,15,1), limits = c(5,15))
+```
+```{r echo=FALSE, plot_by_interest_10th_trait_1}
+univar_plot_hist(lc,lc$借款利率,'借款利率',1)
+```
+```{r echo=FALSE, warning=FALSE, plot_by_interest_10th_trait_2}
+univar_plot_hist(lc,lc$借款利率,'借款利率',1) +
+  scale_x_continuous(limits = c(15,25), breaks = seq(15,25,1)) 
+```
+```{r echo=FALSE, plot_by_repay_11th_trait_1}
+lp$应还金额 = lp$应还本金 + lp$应还利息
+univar_plot_hist(lp,lp$应还金额,'应还金额',1000)
+```
+```{r echo=FALSE, warning=FALSE, plot_by_repay_11th_trait_2}
+univar_plot_hist(lp,lp$应还金额,'应还金额',100) +
+  scale_x_continuous(limits = c(0,quantile(lp$应还金额,0.99)), 
+                     breaks = seq(0,quantile(lp$应还金额,0.99),1000))
+```
+
+借款期限是6个月或12个月，借款利息是20%或22%。虽然利息很高，但借款金额不高，且有较长的还款期限。总体的还款压力我认为不算很大，多数标的每期还款金额在1000元以下。
+
+```{r echo=FALSE,plot_by_status_12th_trait}
+ls_status <- subset(ls,标当前状态 =='正常还款中'|
+                      标当前状态 =='已还清'|标当前状态 =='逾期中')
+univar_plot_bar(ls_status, ls_status$标当前状态, '标当前状态')
+```
+
+大部分的标的都有在还款或已经还清。
+
+```{r echo=FALSE,plot_by_delay_13th_trait_1}
+lp_repay <- subset(lp,lp$还款日期!="\\N")
+lp_repay$逾期还款天数 = as.numeric(difftime(lp_repay$还款日期,
+                                      lp_repay$到期日期,units = 'days'))
+univar_plot_hist(lp_repay,lp_repay$逾期还款天数,'逾期还款天数',1)
+```
+```{r echo=FALSE,warning=FALSE,plot_by_delay_13th_trait_2}
+univar_plot_hist(lp_repay,lp_repay$逾期还款天数,'逾期还款天数',1) +
+  scale_y_log10() +
+  ylab('lg(标的数)')
+```
+
+我使用标的还款计划表中有还款日期的数据，并使用到期日期和还款日期重新计算了一个变量“逾期还款天数”。标的数由于0附近过于密集无法看清分布，因此采用对数的方式呈现。
+
+已还清或正在还款的标的中，多数期还是守时还款的，相当比例甚至会提前还款。
+
+# 单变量分析
+
+### 你的数据集结构是什么？
+
+标的特征数据集共包含328553个标的以及21个特征，包含：借款金额、借款利率、还款期限、初始评级、年龄、等特征。其中初始评级有：A、B、C、D、E、F，A最高，F最低。
+标的还款计划数据集包含3203276个标的还款记录及10个特征，包含：到期日期、还款日期等特征。
+
+其他观察：
+
+* 借款人年龄较为年轻，23至30岁的居多。50岁以上的借款人已经很少了。
+* 借款人多数为男性，女性大约为男性的一半。
+* 70%的标的借款人是老用户。历史成功借款次数中位数为2次，历史成功借款金额中位数为5000元。
+* 大部分的标的，借款人的认证数量在2种以下。有很多标的借款人是没有任何认证的。
+* 大多数标的的初始评级是中等的C和D。
+* 标的借款金额最低100元，最高50万元。大多数标的，借款金额在6000以下，借款期限是6个月或12个月，借款利息是20%或22%。多数标的每期还款金额在1000元以下。
+* 大部分的标的都有在还款或已经还清。
+* 已还清或正常还款中的标的，多数期的还是守时还款的，相当比例甚至会提前还款。
+
+### 你的数据集内感兴趣的主要特性有哪些？
+
+我最感兴趣特征是初始评级和逾期天数。我想知道拍拍贷是如何给借款人进行评级，考查其信用的。
+
+### 你认为数据集内哪些其他特征可以帮助你探索兴趣特点？
+
+我猜测初始评级和是否逾期是密切相关的，我需要找出更多影响初始评级的因素，我认为这些因素可能包括借款人的认证方式、认证数量、历史正常还款期数、历史逾期还款期数。
+
+### 根据数据集内已有变量，你是否创建了任何新变量？
+
+标的特征数据集中，使用了6个认证字段计算出了认证数量。
+
+标的还款计划数据集中，使用还款到期日期和还款日期计算出了逾期还款天数，使用应还本金和应还利息计算出了应还金额。
+
+### 在已经探究的特性中，是否存在任何异常分布？你是否对数据进行一些操作，如清洁、调整或改变数据的形式？如果是，你为什么会这样做？
+
+还款金额存在50万借款金额的异常值，这使得直方图大部分的数据都集中在最左侧。我舍弃了借款金额最高的1%的标的数据，使得分布得以显现。
+
+逾期还款天数由于大部分还款计划都几种在0左右导致无法看清分布，我对y轴使用了对数使分布变得清晰。
+
+# 双变量绘图选择
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# 将分类变量转换为数值，便于做相关性分析。
+
+# A-F转换为1-6。
+lc$初始评级数值 = lc$初始评级
+lc <- lc %>%
+  mutate(初始评级数值 = gsub('A',1,初始评级数值)) %>%
+  mutate(初始评级数值 = gsub('B',2,初始评级数值)) %>%
+  mutate(初始评级数值 = gsub('C',3,初始评级数值)) %>%
+  mutate(初始评级数值 = gsub('D',4,初始评级数值)) %>%
+  mutate(初始评级数值 = gsub('E',5,初始评级数值)) %>%
+  mutate(初始评级数值 = gsub('F',6,初始评级数值)) %>%
+  mutate(初始评级数值 = as.numeric(初始评级数值))
+
+#首标=1，非首标=0
+lc$是否首标数值 = lc$是否首标
+lc <- lc %>%
+  mutate(是否首标数值 = gsub('是',1,是否首标数值)) %>%
+  mutate(是否首标数值 = gsub('否',0,是否首标数值)) %>%
+  mutate(是否首标数值 = as.numeric(是否首标数值))
+
+#男=1，女=0
+lc$性别数值 = lc$性别
+lc <- lc %>%
+  mutate(性别数值 = gsub('男',1,性别数值)) %>%
+  mutate(性别数值 = gsub('女',0,性别数值)) %>%
+  mutate(性别数值 = as.numeric(性别数值))
+
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height=12, fig.width=12,}
+ggpairs(select(lc,c('初始评级数值','年龄','性别数值',
+                    '是否首标数值','历史成功借款次数','历史成功借款金额',
+                    '认证数量','借款金额','借款期限',
+                    '借款利率','历史正常还款期数','历史逾期还款期数'))) +
+  theme(text = element_text(family = 'STXihei'))
+```
+
+从相关性系数上看，初始评级与借款利率相关度高，与借款期限相关度中等，与其他特征相关度较低没有发现与借款人相关的高相关性的特征。借款利率与借款期限也有中等的相关性。
+
+我认为与借款人相关的特征是消费金融的核心，可能由于属于商业机密，因此没有包含在此公开的数据集中。
+
+注：我对于相关度的定义为：
+
+* Corr in [0,0.3)，为低相关度；
+* Corr in [0.3,0.8)，为中等相关度；
+* Corr in [0.8,1]，为高相关度。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+bivar_plot_bar <- function(dataset, xvar, yvar, xlab, ylab) {
+  return(
+    ggplot(data = dataset, aes(x = xvar, y = yvar)) +
+      geom_bar(stat='summary',fun.y=mean) +
+      labs(x = xlab, y = ylab) +
+      theme(text = element_text(family = 'STXihei'))
+  )
+}
+bivar_plot_bar(lc, lc$初始评级, lc$借款利率, '初始评级', '借款利率')
+```
+
+从不同初始评级平均借款利率看，可以很明显看出随着利率的提高，评级在下降。这与金融常识相符，通常利息越高借贷的风险也越高。
+
+不过还是能看出明显的特例——F评级的平均借款利息低于E评级，略低于D评级。猜测这可能是由其他未包含在数据集中的特征引起的。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+bivar_plot_bar(lc, lc$初始评级, lc$借款期限, '初始评级', '借款期限')
+```
+
+从不同初始评级平均借款期限看，无法看出明显的趋势，但大致可以看出A、B、C评级的借款期限要低于，D、E、F。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+rank_male <- univar_plot_bar_freq(subset(lc, 性别 == '男'), 
+                                  subset(lc, 性别 == '男')$初始评级, 
+                                  '初始评级') +
+  ggtitle('男性借款人评级分布')
+rank_female <- univar_plot_bar_freq(subset(lc, 性别 == '女'), 
+                                  subset(lc, 性别 == '女')$初始评级,
+                                  '初始评级') +
+  ggtitle('女性借款人评级分布')
+grid.arrange(rank_male, rank_female, ncol=2) 
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(lc, aes(x = 借款利率, color = 性别)) +
+  geom_freqpoly() +
+  theme(text = element_text(family = 'STXihei'))
+
+```
+
+虽然年龄与初始评级的相关系数并不高，但分布上却可以明显看出随着初始评级的降低，男性的占比是越来越高的。但这并非与相关系数相违背，女性的评级高主要是因为随着利率的提高，男女借款人标的的比例在拉大。而借款利率是影响评级的重要因素，影响了男女借款人初始评级的差异。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+bivar_plot_point <- function(dataset, xvar, yvar, xlab, ylab, alpha) {
+  return(
+    ggplot(lc,aes(x = xvar, y = yvar)) +
+      geom_point(alpha = alpha) +
+      labs(x = xlab, y = ylab) +
+      theme(text = element_text(family = 'STXihei'))
+  )
+}
+bivar_plot_point(lc, lc$初始评级, lc$借款金额, 
+                    '初始评级', '借款金额', 0.01) +
+  scale_y_continuous(limits = c(0,quantile(lc$借款金额,0.99))) 
+```
+
+借款金额与评级之前可以看见有两段分段的趋势，A-C段随着评级的下降，高借款金额的标的在增加；而C-F段随着评级的下降，高借款金额标的迅速减少。总体而言，看不出明显的相关性。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+bivar_plot_box <- function(dataset, xvar, yvar, xlab, ylab) {
+  return(
+    ggplot(dataset, aes(x = xvar, y = yvar)) +
+      geom_boxplot() +
+      labs(x = xlab, y = ylab) +
+      theme(text = element_text(family = 'STXihei'))
+  )
+}
+bivar_plot_box(lc, lc$初始评级, lc$历史成功借款次数,
+                    '初始评级', '历史成功借款次数') +
+  coord_cartesian(ylim = c(0,7))
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+bivar_plot_box(lc, lc$初始评级, lc$历史成功借款金额,
+                    '初始评级', '历史成功借款金额') +
+  coord_cartesian(ylim = c(0,20000))
+```
+
+历史成功借款次数、金额的分布较为类似，在A,B,C三个评级都要高于D,E,F，但是整体没有看到清晰的趋势。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+bivar_plot_box(lc, lc$初始评级, lc$历史正常还款期数,
+                    '初始评级', '历史正常还款期数') +
+  scale_y_continuous(limits = c(0,20))
+```
+
+历史正常还款期数多但是评级低的标的比较少，但趋势还不是很清晰，不能说明还款期数多就真的可以拿到高评级。图中C,D的高还款期数标的多余A,B。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+bivar_plot_box(lc, lc$初始评级, lc$历史逾期还款期数,
+                    '初始评级', '历史逾期还款期数')
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+lc_overdue <- subset(lc, 历史逾期还款期数>0)
+bivar_plot_box(lc_overdue, lc_overdue$初始评级, lc_overdue$历史逾期还款期数,
+                    '初始评级', '历史逾期还款期数') +
+  scale_y_continuous(limits = c(0,5),breaks = seq(0,5,1))
+```
+
+由于预期的期数占比小，导致箱线图的中位数都聚集在0。因此将有逾期的期数作为一个子数据集进行分析。
+
+历史逾期还款期数与初始评级之间也没有明显的趋势。各个评级的逾期期数中位数比较接近，评级E,F的逾期期数略大于A~D。
+
+逾期还款少也可能是借款次数少，需要引入更多的特征来进行观察。
+
+# 双变量分析
+
+###  探讨你在这部分探究中观察到的一些关系。感兴趣的特性与其他特征的关系是怎样的？
+* 从不同初始评级平均借款利率看，可以很明显看出随着利率的提高，评级在下降。这与金融常识相符，通常利息越高借贷的风险也越高。不过还是能看出明显的特例——F评级的平均借款利息低于E评级，略低于D评级。
+* 虽然年龄与初始评级的相关系数并不高，但分布上却可以明显看出随着初始评级的降低，男性的占比是越来越高的。但这并非与相关系数相违背，女性的评级高主要是因为随着利率的提高，男女借款人标的的比例在拉大。而借款利率是影响评级的重要因素，影响了男女借款人初始评级的差异。
+* 其他的特征与初始评级没有观察出很清晰的趋势。
+
+### 你观察到的相关性最强的特征是什么？
+与初始评级相关性最强的是借款利率。
+
+# 多变量绘图选择
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+multivar_plot_jitter <- function(dataset, xvar, yvar, cvar,
+                                 xlab, ylab, width, size, alpha) {
+  return(
+    ggplot(data = dataset, aes(x = xvar, y = yvar, color = cvar)) +
+      geom_jitter(width = width, size = size, alpha = alpha) +
+      labs(x = xlab, y = ylab) +
+      scale_color_brewer(type = 'div') +
+      theme(text = element_text(family = 'STXihei'))
+  )
+}
+multivar_plot_jitter(lc, lc$借款利率, lc$借款期限, lc$初始评级,
+                     '借款利率', '借款期限', 0.25, 1, 1)
+```
+
+从图中可以看出，初始评级随着借款利率的增加，评级再下降。而相同的借款利率，随着借款期限的增加对初始评级的影响较小。这与金融常识相符，通常利息越高借贷的风险也越高。
+
+不过也有例外，在借款利率12%左右存在大量评级是E和F的标的。 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+multivar_plot_jitter(lc, lc$借款利率, lc$借款金额, lc$初始评级,
+                     '借款利率', '借款金额', 0.25, 1, 1) +
+  scale_y_continuous(limits = c(0, quantile(lc$借款金额, 0.99)))
+```
+
+借款利率12%左右评级为E和F的标的借款金额并不高，主要分布大致再2000至6000元之间，最高不超过1万元。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+lc_ef <- subset(lc,初始评级=='E'|初始评级=='F')
+multivar_plot_jitter(lc_ef, lc_ef$借款利率, lc_ef$是否首标, lc_ef$初始评级,
+                     '借款利率', '是否首标', 0.25, 1, 1)
+```
+
+借款利率12%左右评级为E和F全部为首标。拍拍贷可能存在一种风控策略，针对首次借款评级由不高的借款人提供了利率为12%最高不超过1万元的消费贷。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+multivar_plot_jitter(lc, lc$借款利率, lc$借款金额, lc$初始评级,
+                     '借款利率', '借款金额', 0.25, 1, 1) +
+  scale_y_log10()
+```
+
+同样是借款利率与借款金额的散点图，我保留了借款金额最高的1%并采用对数方式呈现y轴，发现借款利率在14到16之间，当借款金额增加到一定程度后，初始评级比更低借款金额的标的低，大约降低了一个评级。。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+multivar_plot_jitter(lc, lc$历史成功借款金额, lc$历史成功借款次数,
+                     lc$初始评级, '历史成功借款金额',
+                     '历史成功借款次数', 0.25, 1, 0.4) +
+  scale_x_log10() +
+  ylim(0,quantile(lc$历史成功借款次数,0.99))
+```
+
+评级为E和F的标的很明显集中在散点图的中部，该区域借款金额和次数对评级的影响有一些微弱的关系，但是还不怎么明显。随着历史借款金额增加到一定程度后，很少会有评级低的标的了。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+multivar_plot_jitter(lc, lc$历史正常还款期数, lc$历史逾期还款期数,
+                     lc$初始评级, '历史正常还款期数', 
+                     '历史逾期还款期数', 0.25, 1, 0.4) +
+  scale_x_log10() +
+  ylim(0,quantile(lc$历史逾期还款期数,0.99))
+```
+
+散点图的左上角和右下角的分布较为清晰。历史逾期还款期数越多，更有可能得到低评级；历史正常还款期数越高，更有可能得到高评级。
+
+逾期多正常还款多的标的，似乎也有可能拿到高的评级。猜测正常还款和逾期还款可能会存在某种抵消的作用。
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+lc$信用分数 = lc$历史正常还款期数 - lc$历史逾期还款期数
+ggplot(lc,aes(x=信用分数,fill=初始评级)) +
+  geom_histogram(binwidth = 1) +
+  xlim(0,quantile(lc$信用分数,0.99)) +
+  scale_y_log10() +
+  theme(text = element_text(family = 'STXihei'))
+
+```
+
+我用“历史正常还款期数 - 历史逾期还款期数”计算了信用分数特征。从直方图上看，没有看到明显的趋势表明，信用分数可以增加评级。
+
+# 多变量分析
+
+###  探讨你在这部分探究中观察到的一些关系。通过观察感兴趣的特性，是否存在相互促进的特性？
+
+* 初始评级随着借款利率的增加，评级再下降。
+* 在借款利率12%观察到了一些例外，12%是比较低的借款利率，但是却存在大量评级是E和F的标的。经过分析，这部分标的都是1万元以下的首标，猜测拍拍贷可能存在一种风控策略，针对首次借款评级由不高的借款人提供了利率为12%最高不超过1万元的消费贷。这部分标的的分布明显区别于。
+* 借款利率在14%到16之间的标的，当借款金额增加到一定程度后，初始评级比更低借款金额的标的低，大约降低了一个评级。
+* 款金额和次数对评级的影响有一些微弱的关系，但是还不怎么明显。随着历史借款金额增加到一定程度后，很少会有评级低的标的了。
+* 历史逾期还款期数越多，更有可能得到低评级；历史正常还款期数越高，更有可能得到高评级。
+
+### 这些特性之间是否存在有趣或惊人的联系呢？
+
+初始评级与借款利率相关度很高。
+
+------
+
+# 定稿图与总结
+
+### 绘图一
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=lc,aes(x=初始评级)) + 
+  geom_bar() +
+  labs(y='标的数量',title='各初始评级标的的数量分布') +
+  theme(text = element_text(family = 'STXihei'),
+        plot.title=element_text(hjust=0.5))
+```
+
+### 描述一
+
+大部分标的的初始评级都为C和D。
+
+### 绘图二
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(lc,aes(x=借款利率,y=借款金额,color=初始评级)) +
+  geom_jitter(width=0.25,size=1) +
+  scale_y_log10() +
+  scale_color_brewer(type = 'div') +
+  labs(title = '借款利率 VS log10(借款金额)，配合颜色编码初始评级',
+       y='log10(借款金额(CNY))') + 
+  theme(text = element_text(family = 'STXihei'),
+        plot.title=element_text(hjust=0.5))
+```
+
+### 描述二
+
+初始评级随着借款利率的增加，评级再下降。借款利率与初始评级整体相关性不强，但在借款利率在14%到16之间的标的，当借款金额增加到一定程度（最高的1%）后，初始评级比更低借款金额的标的低，大约降低了一个评级。猜测拍拍贷有风控策略，会在极端调整评级。
+
+在借款利率12%观察到了一些例外，12%是比较低的借款利率，但是却存在大量评级是E和F的标的。
+
+### 绘图三
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(subset(lc,初始评级=='E'|初始评级=='F'),aes(x=借款利率,y=是否首标,color=初始评级)) +
+  geom_jitter(width=0.15,size=1) +
+  labs(title = 'E,F评级标的 借款利率 VS 是否首标，配合颜色编码初始评级') + 
+  theme(text = element_text(family = 'STXihei'),
+        plot.title=element_text(hjust=0.5))
+```
+
+### 描述三
+
+借款利率12%出现大量评级E和F的现象，经过分析，这部分标的都是1万元以下的首标，猜测拍拍贷可能存在一种风控策略，针对首次借款评级由不高的借款人提供了利率为12%最高不超过1万元的消费贷。
+
+------
+
+# 反思
+数据集中有很多分类变量特征，在做相关性分析时，这些分类变量不那么直观可以观察出相关性。为了便于统计相关性，需要将分类变量转为定量。这个过程中花了很多时间摸索。
+
+我比较感兴趣的是什么样的标的会得到更高的初始评级，使用ggpairs分析后观察到了“借款利率”特征与初始评级有很高的相关性，我认为这让我找到了继续探索数据的方向。但很快我就有一些沮丧，因为因为只发现了借款利息与初始评级有强相关，其他特征相关性并不强。但随着使用更多的变量进行多变量探索后，发现了一些特征虽然相关性并不强，但是在局部的区域却与初始评级存在一些相关性。
+
+这次的探索性分析总体来说并不够深入，只使用了全部数据集中的一小部分特征，大约十几种。接下来我应该要尝试使用更多的特征进行分析。
